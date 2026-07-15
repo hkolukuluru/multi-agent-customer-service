@@ -1,5 +1,5 @@
 """The two LLM agents: a User (hidden goal, no tool visibility) and an
-Assistant (customer service rep with tool access to the shared database).
+Assistant (customer service rep with tool access to the shared database)
 
 Both delegate to a `ChatBackend` (see `sim/llm.py`), which can be OpenAI
 Chat Completions or Anthropic Messages depending on the `LLM_PROVIDER` env
