@@ -1,7 +1,7 @@
 """CLI entry point: run one simulated User <-> Assistant conversation
 end-to-end and inspect the resulting state.
 
-Usage:
+Usage
     python main.py                          # run the default task
     python main.py --task task_2_billing_dispute
     python main.py --list-tasks
