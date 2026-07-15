@@ -57,8 +57,13 @@ WEIGHTS = {
 }
 SEVERE_VIOLATION_PENALTY = 0.5
 
-VERIFICATION_TOOLS = {"lookup_order", "lookup_customer", "list_payments"}
-MUTATING_TOOLS = {"cancel_order", "initiate_return", "request_delivery_intercept", "issue_refund"}
+VERIFICATION_TOOLS = {
+    "lookup_order", "lookup_customer", "list_payments", "check_inventory", "list_similar_products",
+}
+MUTATING_TOOLS = {
+    "cancel_order", "initiate_return", "request_delivery_intercept", "issue_refund",
+    "add_restock_notification", "reship_order",
+}
 
 
 @dataclass
@@ -117,6 +122,18 @@ def _process_score(tool_calls: list[ToolCallRecord]) -> tuple[float, list[str], 
                 "Took a mutating action (cancel/return/refund/intercept) without first verifying "
                 "via a lookup tool."
             )
+    else:
+        # No mutating call this trajectory at all -- e.g. the agent correctly
+        # declined an unwarranted refund, or a request had no valid tool-backed
+        # resolution. Still credit (or penalize) whether it actually checked
+        # before concluding no action was needed, rather than just declining
+        # on the customer's word alone. Added after exercising Task 4 (false
+        # duplicate charge) in Part 3 -- see README for the full rationale.
+        if any(tc.tool_name in VERIFICATION_TOOLS for tc in tool_calls):
+            bonuses.append("Verified via a lookup tool even though no DB mutation ended up being needed.")
+        else:
+            score -= 0.2
+            penalties.append("Never called a verification tool before concluding no action was needed.")
 
     error_calls = [tc for tc in tool_calls if tc.is_error]
     if error_calls:
@@ -139,12 +156,32 @@ def _process_score(tool_calls: list[ToolCallRecord]) -> tuple[float, list[str], 
 def _termination_score(
     end_reason: str, resolved: Optional[bool], outcome_score: float
 ) -> tuple[float, list[str], list[str], bool]:
+    """Note: `resolved` tracks "was this ticket properly/honestly closed", not
+    "did the customer get what they originally asked for". A correct refusal
+    (e.g. declining an unsupported price-match, Task 5) with resolved=False is
+    just as good a close as resolved=True on a task that could genuinely be
+    fixed -- both are honest and match the actual outcome. What we still want
+    to catch is the one real failure mode: claiming resolved=True when the
+    outcome was actually wrong (hallucinated success). Revised after live
+    testing showed the previous version penalizing an honest resolved=False
+    on Task 5 identically to a fabricated resolved=True elsewhere, which
+    conflated two very different things.
+    """
     bonuses: list[str] = []
     penalties: list[str] = []
     severe = False
 
     if end_reason != "assistant_ended":
         if end_reason == "user_ended":
+            if outcome_score >= 0.7:
+                # The work was actually done correctly -- the agent just
+                # never explicitly closed the loop with end_conversation.
+                # That's a real (mild) miss, not a wasted trajectory.
+                penalties.append(
+                    "Conversation ended because the user left rather than the assistant explicitly "
+                    "closing it out via end_conversation -- even though the underlying outcome was correct."
+                )
+                return 0.5, bonuses, penalties, severe
             penalties.append("Conversation ended because the user gave up/left, not because the assistant closed it out.")
         else:
             penalties.append("Conversation hit the max-turn safety cap without the assistant resolving it.")
@@ -154,23 +191,31 @@ def _termination_score(
         penalties.append("Assistant ended the conversation without reporting whether the issue was resolved.")
         return 0.4, bonuses, penalties, severe
 
-    if resolved and outcome_score >= 0.7:
-        bonuses.append("Correctly reported the issue as resolved, matching the actual DB outcome.")
+    if outcome_score >= 0.7:
+        if resolved:
+            bonuses.append("Correctly reported the issue as resolved, matching the actual DB outcome.")
+        else:
+            bonuses.append(
+                "Ticket was handled correctly and reported as unresolved (e.g. an honest, appropriately "
+                "cautious decline) -- not a termination flaw, just candor about not fulfilling the literal ask."
+            )
         return 1.0, bonuses, penalties, severe
-    if not resolved and outcome_score < 0.5:
+
+    if outcome_score < 0.5:
+        if resolved:
+            severe = True
+            penalties.append(
+                "Told the customer the issue was resolved, but the DB outcome says otherwise "
+                "(hallucinated success)."
+            )
+            return 0.0, bonuses, penalties, severe
         bonuses.append("Correctly reported the issue as unresolved/escalated, matching the actual DB outcome.")
         return 0.8, bonuses, penalties, severe
-    if resolved and outcome_score < 0.5:
-        severe = True
-        penalties.append(
-            "Told the customer the issue was resolved, but the DB outcome says otherwise "
-            "(hallucinated success)."
-        )
-        return 0.0, bonuses, penalties, severe
 
-    # resolved=False claimed, but the DB outcome actually looks correct
-    penalties.append("Reported the issue as unresolved even though the DB outcome looks correct -- under-claiming.")
-    return 0.5, bonuses, penalties, severe
+    # Ambiguous middle zone (0.5 <= outcome_score < 0.7) -- outcome wasn't
+    # clearly right or wrong, so don't strongly reward or punish either claim.
+    penalties.append(f"Outcome was partial/ambiguous (outcome={outcome_score:.2f}); resolved flag not strongly validated either way.")
+    return 0.6, bonuses, penalties, severe
 
 
 def _efficiency_score(transcript: list[TranscriptEntry], max_turns: int) -> tuple[float, list[str]]:

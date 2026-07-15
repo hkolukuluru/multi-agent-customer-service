@@ -50,6 +50,16 @@ class SimulationResult:
                     + (f" (reason: {final_payment.refund_reason})" if final_payment.refund_reason else "")
                 )
 
+        for product_id, final_product in self.final_db.products.items():
+            initial_product = self.initial_db.products.get(product_id)
+            if not initial_product:
+                continue
+            if initial_product.stock != final_product.stock:
+                lines.append(f"Product {product_id}: stock {initial_product.stock} -> {final_product.stock}")
+            if initial_product.restock_notify != final_product.restock_notify:
+                added = [c for c in final_product.restock_notify if c not in initial_product.restock_notify]
+                lines.append(f"Product {product_id}: restock notification added for {added}")
+
         if not lines:
             lines.append("No database changes.")
         return lines

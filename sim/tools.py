@@ -55,6 +55,26 @@ class IssueRefundArgs(BaseModel):
     reason: str = Field(..., description="Why this payment is being refunded.")
 
 
+class CheckInventoryArgs(BaseModel):
+    product_id: str = Field(..., description="Product ID to check stock for, e.g. 'PROD-JKT-RED'.")
+
+
+class ListSimilarProductsArgs(BaseModel):
+    product_id: str = Field(
+        ..., description="Find in-stock alternatives to this product (same category, e.g. other colors/models)."
+    )
+
+
+class AddRestockNotificationArgs(BaseModel):
+    product_id: str
+    customer_id: str = Field(..., description="Customer to notify when this product is back in stock.")
+
+
+class ReshipOrderArgs(BaseModel):
+    order_id: str
+    reason: str = Field(..., description="Why a replacement shipment is being sent, e.g. package never arrived.")
+
+
 class EndConversationArgs(BaseModel):
     final_message: str = Field(..., description="The last message to send to the customer before ending the chat.")
     resolved: bool = Field(..., description="Whether the customer's issue was resolved.")
@@ -166,6 +186,56 @@ def issue_refund(db: Database, order_id: str, payment_id: str, reason: str) -> d
     return {"success": True, "payment": payment.model_dump()}
 
 
+def check_inventory(db: Database, product_id: str) -> dict:
+    product = db.products.get(product_id)
+    if product is None:
+        return {"found": False, "error": f"No product found with id {product_id!r}."}
+    return {"found": True, "product": product.model_dump()}
+
+
+def list_similar_products(db: Database, product_id: str) -> dict:
+    base = db.products.get(product_id)
+    if base is None:
+        return {"found": False, "error": f"No product found with id {product_id!r}."}
+    alternatives = [
+        p.model_dump()
+        for p in db.products.values()
+        if p.category == base.category and p.product_id != product_id and p.stock > 0
+    ]
+    return {"found": True, "base_product_id": product_id, "alternatives": alternatives}
+
+
+def add_restock_notification(db: Database, product_id: str, customer_id: str) -> dict:
+    product = db.products.get(product_id)
+    if product is None:
+        return {"success": False, "error": f"No product found with id {product_id!r}."}
+    if product.stock > 0:
+        return {
+            "success": False,
+            "error": f"Product {product_id!r} is currently in stock ({product.stock} units) -- no restock notification needed.",
+            "product": product.model_dump(),
+        }
+    if customer_id in product.restock_notify:
+        return {"success": True, "already_subscribed": True, "product": product.model_dump()}
+    product.restock_notify.append(customer_id)
+    return {"success": True, "product": product.model_dump()}
+
+
+def reship_order(db: Database, order_id: str, reason: str) -> dict:
+    order = db.orders.get(order_id)
+    if order is None:
+        return {"success": False, "error": f"No order found with id {order_id!r}."}
+    if order.status not in ("shipped", "delivered"):
+        return {
+            "success": False,
+            "error": f"Order status '{order.status}' is not eligible for reshipment.",
+            "order": order.model_dump(),
+        }
+    order.status = "reshipped"
+    order.notes.append(f"Replacement shipment sent: {reason}")
+    return {"success": True, "order": order.model_dump()}
+
+
 def end_conversation(db: Database, final_message: str, resolved: bool, summary: str) -> dict:
     # No DB mutation -- the simulation loop reads these args directly to end the chat.
     return {"acknowledged": True}
@@ -257,6 +327,30 @@ TOOL_SPECS: list[ToolSpec] = [
         description="Refund a specific payment record on an order, e.g. after confirming a duplicate charge via list_payments.",
         args_model=IssueRefundArgs,
         func=issue_refund,
+    ),
+    ToolSpec(
+        name="check_inventory",
+        description="Check current stock level for a product. Use before promising an item is available or offering a restock notification.",
+        args_model=CheckInventoryArgs,
+        func=check_inventory,
+    ),
+    ToolSpec(
+        name="list_similar_products",
+        description="List other in-stock products in the same category as the given product -- use to offer a genuine alternative instead of guessing what's available.",
+        args_model=ListSimilarProductsArgs,
+        func=list_similar_products,
+    ),
+    ToolSpec(
+        name="add_restock_notification",
+        description="Subscribe a customer to be notified when an out-of-stock product is restocked.",
+        args_model=AddRestockNotificationArgs,
+        func=add_restock_notification,
+    ),
+    ToolSpec(
+        name="reship_order",
+        description="Send a replacement shipment for an order that shipped or was marked delivered but never arrived (lost in transit).",
+        args_model=ReshipOrderArgs,
+        func=reship_order,
     ),
     ToolSpec(
         name="end_conversation",

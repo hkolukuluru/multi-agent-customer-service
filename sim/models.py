@@ -31,6 +31,9 @@ class Product(BaseModel):
     name: str
     price: float
     stock: int
+    category: str = "general"  # used by list_similar_products to find alternatives
+    color: Optional[str] = None
+    restock_notify: list[str] = Field(default_factory=list)  # customer_ids waiting for restock
 
 
 OrderStatus = Literal[
@@ -43,6 +46,7 @@ OrderStatus = Literal[
     "return_pending_delivery",
     "intercept_requested",
     "returned",
+    "reshipped",
 ]
 
 
@@ -56,6 +60,11 @@ class Order(BaseModel):
     status: OrderStatus
     created_at: str
     notes: list[str] = Field(default_factory=list)
+    # What was actually shipped, when it differs from what was ordered (product_id/
+    # product_name above). None means "shipped as ordered" -- only set when seeding
+    # a wrong-item scenario, so this stays backward-compatible with existing tasks.
+    shipped_product_id: Optional[str] = None
+    shipped_product_name: Optional[str] = None
 
 
 PaymentStatus = Literal["charged", "refunded"]
