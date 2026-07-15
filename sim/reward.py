@@ -1,4 +1,4 @@
-"""Reward function(s) for a completed conversation trajectory.
+"""Reward function(s) for a completed conversation trajectory
 
 Design summary (see README.md for the full whiteboard discussion):
 
