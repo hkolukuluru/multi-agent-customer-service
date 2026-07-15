@@ -31,6 +31,7 @@ def _load_dotenv(path: str = ".env") -> None:
 
 _load_dotenv()
 
+from sim.reward import compute_reward  # noqa: E402
 from sim.simulation import ConversationSimulation  # noqa: E402
 from sim.tasks import ALL_TASKS, TASKS_BY_ID  # noqa: E402
 
@@ -70,6 +71,10 @@ def main() -> None:
     print("\n=== Database diff (initial -> final) ===")
     for line in result.diff_summary():
         print(f" - {line}")
+
+    reward = compute_reward(result)
+    print("\n=== Reward ===")
+    print(reward.report())
 
 
 if __name__ == "__main__":

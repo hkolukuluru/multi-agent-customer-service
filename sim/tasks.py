@@ -11,6 +11,14 @@ from typing import Callable
 
 from .models import Customer, Database, Order, PaymentRecord, Product
 
+# (initial_db, final_db) -> (score in [0, 1], human-readable explanation).
+# This is the one genuinely task-specific piece of the reward function: only
+# the task author knows what a *correct* end state looks like (e.g. "exactly
+# one of the two duplicate payments is refunded", not "the total refunded
+# amount is nonzero"). See sim/reward.py for how this plugs into the rest of
+# the scoring.
+OutcomeScorer = Callable[[Database, Database], tuple[float, str]]
+
 
 @dataclass
 class Task:
@@ -18,6 +26,7 @@ class Task:
     title: str
     user_instruction: str  # hidden goal given only to the User Agent
     build_db: Callable[[], Database]
+    score_outcome: OutcomeScorer
     max_turns: int = 8  # safety cap on user<->assistant exchanges
 
 
@@ -52,6 +61,27 @@ def _build_task_1_db() -> Database:
     return db
 
 
+def _score_task_1_outcome(initial_db: Database, final_db: Database) -> tuple[float, str]:
+    order = final_db.orders.get("ORD-1234")
+    if order is None:
+        return 0.0, "Order ORD-1234 is missing from the final DB state."
+
+    # The order had already shipped, so a literal cancellation should be
+    # impossible via the tools. Any of the three resolutions the spec lists
+    # (return once delivered, delivery intercept, or a return already
+    # initiated) count as a correct outcome.
+    good_statuses = {"return_pending_delivery", "return_initiated", "intercept_requested"}
+    if order.status in good_statuses:
+        return 1.0, f"Order correctly routed to an alternative resolution (status='{order.status}')."
+    if order.status == "shipped":
+        return 0.0, "Order status is unchanged -- no resolution was attempted."
+    if order.status == "cancelled":
+        # Shouldn't be reachable given cancel_order's own guard, but score it
+        # explicitly in case a future tool change regresses this.
+        return 0.0, "Order was marked cancelled despite already having shipped -- should not be possible."
+    return 0.3, f"Order ended in an unexpected status '{order.status}' for this scenario."
+
+
 TASK_1_ORDER_CANCELLATION = Task(
     task_id="task_1_order_cancellation",
     title="Order Cancellation (already shipped)",
@@ -61,6 +91,7 @@ TASK_1_ORDER_CANCELLATION = Task(
         "it can't be cancelled, ask what your options are."
     ),
     build_db=_build_task_1_db,
+    score_outcome=_score_task_1_outcome,
 )
 
 
@@ -103,6 +134,20 @@ def _build_task_2_db() -> Database:
     return db
 
 
+def _score_task_2_outcome(initial_db: Database, final_db: Database) -> tuple[float, str]:
+    pay2 = final_db.payments.get("PAY-2")
+    pay3 = final_db.payments.get("PAY-3")
+    if pay2 is None or pay3 is None:
+        return 0.0, "Expected payment records are missing from the final DB state."
+
+    refunded = [p.payment_id for p in (pay2, pay3) if p.status == "refunded"]
+    if len(refunded) == 1:
+        return 1.0, f"Exactly one duplicate payment ({refunded[0]}) was refunded -- correct."
+    if len(refunded) == 0:
+        return 0.0, "No refund was issued despite a genuine duplicate charge."
+    return 0.0, "Both payments were refunded -- over-refunded (customer should get back only the duplicate)."
+
+
 TASK_2_BILLING_DISPUTE = Task(
     task_id="task_2_billing_dispute",
     title="Billing Dispute (duplicate charge)",
@@ -112,6 +157,7 @@ TASK_2_BILLING_DISPUTE = Task(
         "you see two identical charges on your card statement for this order."
     ),
     build_db=_build_task_2_db,
+    score_outcome=_score_task_2_outcome,
 )
 
 

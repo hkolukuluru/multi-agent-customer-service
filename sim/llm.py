@@ -133,7 +133,7 @@ class AnthropicChatBackend:
             system=self.system_prompt,
             messages=self.messages,
             max_tokens=self.max_tokens,
-            temperature=0.7,
+            # temperature=0.7,
         )
         text = "".join(block.text for block in response.content if block.type == "text")
         self.messages.append({"role": "assistant", "content": text})
@@ -153,7 +153,7 @@ class AnthropicChatBackend:
                 messages=self.messages,
                 tools=schemas,
                 max_tokens=self.max_tokens,
-                temperature=0.3,
+                # temperature=0.3,
             )
             blocks = response.content
             tool_use_blocks = [b for b in blocks if b.type == "tool_use"]
@@ -163,17 +163,20 @@ class AnthropicChatBackend:
                 self.messages.append({"role": "assistant", "content": text})
                 return text, tool_records
 
-            # Preserve the full assistant turn (text + tool_use blocks) so the
-            # tool_result reply below can reference the right tool_use ids and
-            # the model keeps context across round-trips.
+            # Preserve the full assistant turn -- text, tool_use, and any
+            # other block type the model returns (e.g. `thinking`, when
+            # extended thinking is on) -- so the tool_result reply below can
+            # reference the right tool_use ids and the model keeps context
+            # across round-trips. Anthropic requires thinking blocks be
+            # replayed back verbatim (including their `signature`) in a
+            # tool-use conversation, so we round-trip every block generically
+            # via model_dump() instead of hand-listing known block types
+            # (which breaks the moment the model returns a block type we
+            # didn't anticipate, as `thinking` blocks did here).
             self.messages.append(
                 {
                     "role": "assistant",
-                    "content": [
-                        {"type": "text", "text": b.text} if b.type == "text"
-                        else {"type": "tool_use", "id": b.id, "name": b.name, "input": b.input}
-                        for b in blocks
-                    ],
+                    "content": [b.model_dump(exclude_none=True) for b in blocks],
                 }
             )
 
