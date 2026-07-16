@@ -6,6 +6,7 @@ Termination can happen three ways:
 2. The User Agent emits the END token (satisfied, or giving up on its own).
 3. A hard `max_turns` cap is hit (safety net against infinite loops).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
