@@ -1,6 +1,6 @@
 """Reward function(s) for a completed conversation trajectory
 
-Design summary (see README.md for the full whiteboard discussion):
+Design summary:
 
 A "successful" interaction isn't "did the DB end up exactly how the customer
 originally asked" -- several tasks are specifically designed so the literal
