@@ -36,8 +36,7 @@ ANTHROPIC_MODEL=claude-sonnet-5
 OPENAI_MODEL=gpt-4o-mini
 ```
 
-`.env` is loaded by a small stdlib-only parser in `main.py` (no
-`python-dotenv`, to stay inside the assignment's allowed-library list).
+`.env` is loaded by a small stdlib-only parser in `main.py`.
 
 ## Run
 
