@@ -392,6 +392,8 @@ def _score_task_6_outcome(initial_db: Database, final_db: Database) -> tuple[flo
     return 0.0, "The lost package was neither reshipped nor refunded -- the customer was left with nothing."
 
 
+
+
 TASK_6_LOST_PACKAGE = Task(
     task_id="task_6_lost_package",
     title="Lost Package (never arrived)",
