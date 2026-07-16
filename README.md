@@ -7,11 +7,7 @@ database — plus a **reward function** that scores a completed conversation
 against six tasks (three specified, three bespoke).
 
 All orchestration (message history, the tool-call loop, termination,
-provider differences between OpenAI and Anthropic) is hand-rolled — no
-Assistants API, no Responses API, no LangChain/LangGraph/pydantic-ai or any
-other agent framework. Allowed third-party libraries: `openai`/`anthropic`
-(Chat Completions / Messages APIs only) and `pydantic`. Everything else is
-Python standard library.
+provider differences between OpenAI and Anthropic) is hand-rolled.
 
 ## Setup
 
